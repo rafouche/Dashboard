@@ -1,71 +1,77 @@
-# Altec Wallboard — Final Package
+# Altec Wallboard Dashboard
 
-## What's in this zip
+A NOC-style wallboard: `dashboard.html` is a single self-contained file (all
+CSS/JS inline, no build step, no framework) that polls several Cloudflare
+Worker MCP servers' `/status` (and `/licenses`) routes and renders a
+four-zone live view — Network, Tickets & SLA, Security, Business. Open it
+directly in any browser, on any TV — `file://` or hosted, doesn't matter.
 
-```
-dashboard.html       ← the entire client. One file, all JS inline, nothing else to run locally.
-huntress-mcp/         ← new standalone Worker (deploy fresh)
-pax8-mcp/              ← new standalone Worker (deploy fresh)
-```
+## Repo split
 
-That's it. Your existing `ninjarmm-mcp`, `halopsa-mcp`, `meraki-mcp`, and `cipp-mcp`
-projects already have their `/status` routes merged in (from the files you pasted
-and I merged back) — just redeploy those 3 you updated, same as always
-(`wrangler deploy` from each project's folder). Nothing further needed from me on
-those.
+This repo (`https://github.com/rafouche/Dashboard`) holds only the wallboard
+client — it isn't itself an MCP server, just a consumer of one. The workers
+it polls (Meraki, Peplink, UniFi, NinjaRMM, HaloPSA, CIPP, Huntress, Pax8,
+etc.) live in the separate `https://github.com/rafouche/MCPs` repo, each in
+its own `*-mcp/` folder with its own independent `wrangler deploy`.
 
-## Deploy order
+## Running it
 
-1. **Redeploy your 3 updated existing Workers** (Halo, Meraki, CIPP — wherever you
-   merged the `/status` route in): `wrangler deploy` from each project folder.
-2. **Deploy the 2 new ones:**
+Nothing to install. Just open `dashboard.html` in a browser. All endpoints
+point at the `young-math-a33a.workers.dev` subdomain by default — edit the
+`ENDPOINTS` object near the top of the `<script>` block if that ever
+changes.
 
-```bash
-cd huntress-mcp
-wrangler secret put HUNTRESS_API_KEY
-wrangler secret put HUNTRESS_API_SECRET
-wrangler deploy
+### URL params
 
-cd ../pax8-mcp
-wrangler secret put PAX8_MCP_TOKEN
-wrangler secret put PAX8_CLIENT_ID
-wrangler secret put PAX8_CLIENT_SECRET
-wrangler deploy
-```
+- `?zone=network|tickets|security|business|all` — which zone(s) to show (default `all`, a 2x2 grid)
+- `?demo=1` — force demo data in every zone, ignoring live endpoints
+- `?header=0` — hide the top bar (clock/version), useful for a tighter kiosk crop
+- `?showInactive=1` — bypass the inactive-client filter (see below) for auditing what's still connected
+- `?<endpointKey>=<url>` — override any single endpoint at load time, e.g. `?ninja=http://localhost:8787/status`
+- `?<zone>Filter=...` / `?<zone>Sort=...` — set a zone's filter/sort chip on load (also written back to the URL when a chip is clicked, so a kiosk reload keeps its state)
 
-3. **Open `dashboard.html`** — anywhere, any TV's browser. `?zone=network|tickets|security|business|all` still works the same way.
+## Zones and their sources
 
-## One outstanding item: Ninja
-
-You haven't sent over `ninjarmm-mcp`'s `index.ts` yet, so I couldn't merge a
-`/status` route into it — the dashboard still points at
-`https://ninjarmm-mcp.young-math-a33a.workers.dev/status`, but until that route
-exists there, the Network zone's Ninja half will fall back to demo data (Meraki's
-half will still show live, since that one's done). Paste that file whenever you're
-ready and I'll do the same merge as the other three.
-
-## What changed in this version of dashboard.html
-
-The Security zone now merges **two** independent sources instead of one:
-Huntress incidents (as before) **and** CIPP's M365 security posture (Secure
-Score %, MFA coverage %, and any tenants below threshold) — since you asked for
-CIPP folded into Security. Each source still degrades independently; if CIPP's
-`/status` is unreachable, you still see Huntress incidents live and vice versa.
-
-## Endpoint map (for reference)
-
-| Zone | Source(s) | URL |
+| Zone | Source(s) | Route |
 |---|---|---|
-| Network | Ninja | `ninjarmm-mcp.young-math-a33a.workers.dev/status` *(pending)* |
-| Network | Meraki | `meraki-mcp.young-math-a33a.workers.dev/status` |
-| Tickets | Halo | `halopsa-mcp.young-math-a33a.workers.dev/status` |
-| Security | Huntress | `huntress-mcp.young-math-a33a.workers.dev/api/huntress/*` |
-| Security | CIPP | `cipp-mcp.young-math-a33a.workers.dev/status` |
-| Business | Pax8 | `pax8-mcp.young-math-a33a.workers.dev/api/pax8/*` |
+| Network | NinjaRMM (individually-tracked devices) | `ninjarmm-mcp.../status` |
+| Network | Meraki (org-level device health) | `meraki-mcp.../status` |
+| Network | Peplink (org-level device health) | `peplink-mcp.../status` |
+| Network | UniFi (org-level device health) | `unifi-mcp.../status` |
+| Tickets & SLA | HaloPSA | `halopsa-mcp.../status` |
+| Security | Huntress (48h incidents/escalations) | `huntress-mcp.../api/huntress/*` (raw REST passthrough) |
+| Security | CIPP (M365 secure score, MFA coverage) | `cipp-mcp.../status` |
+| Security | Avanan | not connected yet — placeholder filter slot only |
+| Business | Pax8 (subscription renewals) | `pax8-mcp.../api/pax8/*` (raw REST passthrough) |
+| Business | Meraki / Peplink (license renewals) | `*-mcp.../licenses` |
 
-## Known TODOs (unchanged from before)
+Every source degrades independently to demo data if its endpoint is
+unreachable — one vendor being down never blanks a whole zone. Meraki,
+Peplink, and UniFi network tiles are grouped by client name (with a manual
+`ORG_ALIASES` table in the script for cases where a vendor names the same
+client differently, e.g. an abbreviation).
 
-Field-name assumptions in the `/status` routes you merged (Halo ticket fields,
-CIPP secure score/MFA fields, Meraki's are solid since they reuse your existing
-tested helper) may need small adjustments once you see real payloads — same
-caveat as when those files were handed back to you.
+## Inactive-client filtering
+
+HaloPSA is treated as the source of truth for whether a client is still
+active. `halopsa-mcp`'s `/status` route returns an `inactiveClients` list
+(names of Halo clients flagged `inactive`); the dashboard fetches that once
+per poll cycle and filters every zone against it by client/org name, since
+Meraki/Peplink/Pax8/Huntress/CIPP don't know when we've been offboarded —
+only Halo does. Halo's own ticket stats are filtered server-side in
+`halopsa-mcp` itself. Filtering only works to the extent a vendor's org name
+matches (post-`ORG_ALIASES`-canonicalization) the exact client name in Halo
+— if a client still shows up after being marked inactive in Halo, check
+whether the vendor's org name actually matches the Halo client record it
+should be, and add an `ORG_ALIASES` entry if not. Add `?showInactive=1` to
+bypass the filter and see what's still connected.
+
+## Known gaps / TODOs
+
+- Avanan isn't deployed yet — the Security zone's `avanan` filter is a
+  placeholder, ready to wire in once `avanan-mcp` exists.
+- Field-name assumptions in each worker's `/status` route (ticket fields,
+  secure-score/MFA fields, etc.) were confirmed against live payloads at the
+  time they were written, but a vendor API change could silently break a
+  field mapping — check for `??? / '—'` placeholders on the wallboard if a
+  zone stops looking right after a vendor updates their API.
