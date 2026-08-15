@@ -70,11 +70,13 @@
   .zone-meta.demo { color: var(--wire); }
   .zone-body { flex: 1; overflow-y: auto; padding: 14px 16px; font-size: 15px; min-height: 0; }
 
-  .chip-row { display: flex; align-items: center; gap: 6px; padding: 6px 16px; border-bottom: 1px solid var(--hairline); flex-shrink: 0; overflow-x: auto; }
-  .chip-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); flex-shrink: 0; margin-right: 2px; }
+  .chip-row { display: flex; align-items: center; gap: 6px; padding: 4px 16px; border-bottom: 1px solid var(--hairline); flex-shrink: 0; overflow-x: auto; }
+  .chip-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .chip-divider { width: 1px; height: 14px; background: var(--hairline); flex-shrink: 0; margin: 0 4px; }
+  .chip-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); flex-shrink: 0; margin-right: 2px; }
   .chip {
-    font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase;
-    padding: 5px 11px; border-radius: 12px; border: 1px solid var(--hairline);
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 10px; border: 1px solid var(--hairline);
     background: transparent; color: var(--text-muted); cursor: pointer; white-space: nowrap;
     transition: all 0.15s ease;
   }
@@ -86,10 +88,11 @@
   .zone--security .swatch { background: var(--red); }
   .zone--business .swatch { background: var(--violet); }
 
-  .stat-row { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-  .stat { flex: 1; min-width: 100px; background: rgba(255,255,255,0.02); border: 1px solid var(--hairline); border-radius: 8px; padding: 10px 12px; }
-  .stat-num { font-family: var(--mono); font-size: 30px; font-weight: 700; line-height: 1; }
-  .stat-label { font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-top: 4px; }
+  .stat-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 88px; background: rgba(255,255,255,0.02); border: 1px solid var(--hairline); border-radius: 8px; padding: 7px 10px; }
+  .stat-num { font-family: var(--mono); font-size: 24px; font-weight: 700; line-height: 1; }
+  .stat-label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-top: 3px; }
+  .stat-footnote { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); margin: -4px 0 10px; }
 
   .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--hairline); font-size: 13px; }
   .row:last-child { border-bottom: none; }
@@ -204,11 +207,22 @@
   const activeZones = zoneParam === 'all' ? Object.keys(ZONES) : [zoneParam];
   app.className = zoneParam === 'all' ? 'mode-all' : 'mode-single';
 
-  function buildChipRow(key, kind, options, current) {
+  // Filter and sort used to each get their own full chip-row — two rows of
+  // vertical space per zone before any content showed. Merged into one row
+  // (still two id-scoped groups internally, so the existing toggle-active
+  // logic below doesn't need to change) to cut that in half.
+  function buildChipGroup(key, kind, options, current) {
     const chips = options.map(o =>
       `<button class="chip${current === o.key ? ' active' : ''}" data-zone="${key}" data-kind="${kind}" data-value="${o.key}">${escapeHtml(o.label)}</button>`
     ).join('');
-    return `<div class="chip-row" id="${kind}s-${key}"><span class="chip-label">${kind === 'filter' ? 'Show' : 'Sort'}</span>${chips}</div>`;
+    return `<span class="chip-group" id="${kind}s-${key}">${chips}</span>`;
+  }
+  function buildControlsRow(key, z, filterCurrent, sortCurrent) {
+    if (!z.filters && !z.sorts) return '';
+    const filterPart = z.filters ? `<span class="chip-label">Show</span>${buildChipGroup(key, 'filter', z.filters, filterCurrent)}` : '';
+    const sortPart = z.sorts ? `<span class="chip-label">Sort</span>${buildChipGroup(key, 'sort', z.sorts, sortCurrent)}` : '';
+    const divider = z.filters && z.sorts ? '<span class="chip-divider"></span>' : '';
+    return `<div class="chip-row">${filterPart}${divider}${sortPart}</div>`;
   }
 
   activeZones.forEach(key => {
@@ -221,8 +235,7 @@
         <div class="zone-title"><span class="swatch"></span>${z.title}</div>
         <div class="zone-meta" id="meta-${key}">connecting…</div>
       </div>
-      ${z.filters ? buildChipRow(key, 'filter', z.filters, filterState[key]) : ''}
-      ${z.sorts ? buildChipRow(key, 'sort', z.sorts, sortState[key]) : ''}
+      ${buildControlsRow(key, z, filterState[key], sortState[key])}
       <div class="zone-body" id="body-${key}"></div>
     `;
     app.appendChild(el);
@@ -295,8 +308,13 @@
     await refreshInactiveClients();
     activeZones.forEach(pollZone);
   }
-  pollAll();
-  setInterval(pollAll, POLL_MS);
+  // Kicked off at the bottom of the script (see end of file), not here —
+  // pollAll -> refreshInactiveClients reads `showInactive`, a const declared
+  // further down. Calling it this early hit that binding while still in its
+  // temporal dead zone (confirmed live via a ReferenceError), which silently
+  // failed the entire first poll cycle — every zone sat on "connecting…"
+  // until the next 30s interval tick bailed it out. Never call pollAll()
+  // before every const/let it transitively touches has been declared.
 
   function escapeHtml(s) {
     const div = document.createElement('div');
@@ -520,8 +538,8 @@
         <div class="stat"><div class="stat-num" style="color:var(--wire)">${data.waitingOnUsCount ?? '—'}</div><div class="stat-label">Waiting On Us</div></div>
         <div class="stat"><div class="stat-num" style="color:var(--violet)">${data.waitingOnClientCount ?? '—'}</div><div class="stat-label">Waiting On Client</div></div>
         ${data.onHoldCount != null ? `<div class="stat"><div class="stat-num" style="color:var(--text-muted)">${data.onHoldCount}</div><div class="stat-label">On Hold</div></div>` : ''}
-        ${data.alertNoiseCount != null ? `<div class="stat"><div class="stat-num" style="color:var(--text-dim)">${data.alertNoiseCount}</div><div class="stat-label">Alert Noise (excluded)</div></div>` : ''}
       </div>
+      ${data.alertNoiseCount != null ? `<div class="stat-footnote">+${data.alertNoiseCount} alert-noise tickets excluded from the counts above</div>` : ''}
       ${t.map(x => `
         <div class="row" style="${x.onHold ? 'opacity:0.55;' : ''}">
           <div class="row-main">
@@ -771,6 +789,9 @@
       { company: "Altec Solutions Group", product: "Peplink Balance 380X — Warranty", renewalDate: "Sep 1", mrr: 0, source: "Peplink" },
     ]};
   }
+
+  pollAll();
+  setInterval(pollAll, POLL_MS);
 </script>
 </body>
 </html>
