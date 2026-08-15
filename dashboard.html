@@ -334,6 +334,12 @@
   const ORG_ALIASES = {
     'sbc': 'Springfield Brewing Co',
     'springfield brewing company': 'Springfield Brewing Co',
+    // Vendor org names that carry an extra qualifier Halo's client record
+    // doesn't (e.g. Meraki/Peplink appending "911" to dispatch clients) —
+    // without these the inactive-client filter below can't match them, since
+    // it compares against Halo's exact client name.
+    'christian county emergency services 911': 'Christian County Emergency Services',
+    'dade county 911': 'Dade County Emergency Services',
   };
   function canonicalOrgName(name) {
     const key = (name || '').trim().toLowerCase();
