@@ -66,6 +66,19 @@ whether the vendor's org name actually matches the Halo client record it
 should be, and add an `ORG_ALIASES` entry if not. Add `?showInactive=1` to
 bypass the filter and see what's still connected.
 
+## No token, on purpose
+
+The wallboard sends no credentials, and never should: it's a static page
+on a TV. The Workers' auth rule (the "STANDING RULE: inbound auth for every
+Worker" section in `rafouche/MCPs`' `CLAUDE.md`) leaves exactly the routes
+this page uses open to plain `GET`/`HEAD`: `/health`, `/status`,
+`/licenses`, and the `/api/huntress/*` and `/api/pax8/*` passthroughs, which
+are read-only (any other method gets 405). Everything else on those Workers
+- `/mcp` and every tool - needs the Worker's `MCP_AUTH_TOKEN`. So if a tile
+falls back to demo data right after a Worker change, check that Worker's
+open-route list before anything else; a `401` on a `/status` route means the
+rule was broken, not that the page needs a token.
+
 ## Known gaps / TODOs
 
 - Avanan isn't deployed yet — the Security zone's `avanan` filter is a
