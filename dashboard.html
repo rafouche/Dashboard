@@ -151,7 +151,7 @@
   // Bump this on every meaningful change: 1.1 -> 1.2 -> 1.2.5 -> 1.3 for
   // regular updates; jump to 2.0 only for a major/breaking change (new
   // zone structure, changed endpoint contract, etc).
-  const APP_VERSION = '1.6';
+  const APP_VERSION = '1.7';
   document.getElementById('versionBadge').textContent = 'v' + APP_VERSION;
 
   const ENDPOINTS = {
@@ -562,12 +562,34 @@
   }
 
   // ================= SECURITY (Huntress last-48h activity + CIPP M365 posture) =================
+  // CIPP posture comes in CIPP_BATCHES slices (v1.7): the free Cloudflare plan allows 50 outbound calls per
+  // request, each tenant needs 2, and one request for all tenants left about half of them out. Each slice is
+  // fetched separately and combined here; a slice that fails just leaves its tenants out this round.
+  const CIPP_BATCHES = 3;
+  async function fetchCippPosture() {
+    const results = await Promise.allSettled(Array.from({ length: CIPP_BATCHES }, (_, i) =>
+      fetchOne(`${ENDPOINTS.cipp}?batch=${i + 1}&of=${CIPP_BATCHES}`)));
+    const ok = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    if (!ok.length) throw new Error('CIPP unreachable');
+    if (!ok.some(b => Array.isArray(b.tenants))) return ok[0];   // a Worker from before batches: its own totals
+    const tenants = ok.flatMap(b => b.tenants || []).filter(t => !t.error);
+    const avg = (key) => {
+      const v = tenants.filter(t => t[key] !== null && t[key] !== undefined).map(t => t[key]);
+      return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null;
+    };
+    return {
+      avgSecureScore: avg('securePercent'),
+      avgMfaPercent: avg('mfaPercent'),
+      lowScoreTenants: tenants.filter(t => t.securePercent !== null && t.securePercent < 50).map(t => ({ tenant: t.tenant, securePercent: t.securePercent })),
+      lowMfaTenants: tenants.filter(t => t.mfaPercent !== null && t.mfaPercent < 80).map(t => ({ tenant: t.tenant, mfaPercent: t.mfaPercent })),
+    };
+  }
   async function fetchSecurityZone() {
     const since = encodeURIComponent(new Date(Date.now() - 48 * 3600 * 1000).toISOString());
     const [reportsRes, escRes, cippRes, orgsRes] = await Promise.allSettled([
       fetchOne(`${ENDPOINTS.huntress}/incident_reports?created_at_min=${since}&limit=25`),
       fetchOne(`${ENDPOINTS.huntress}/escalations?created_at_min=${since}&limit=25`),
-      fetchOne(ENDPOINTS.cipp),
+      fetchCippPosture(),
       fetchOne(`${ENDPOINTS.huntress}/organizations?limit=500`),
     ]);
     if (reportsRes.status === 'rejected' && escRes.status === 'rejected' && cippRes.status === 'rejected') {

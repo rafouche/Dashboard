@@ -11,6 +11,12 @@ Workers rebuild `/status` at most every 5 minutes, because building it costs
 more CPU than Cloudflare's free plan allows per request (197 refreshes were cut
 off in two days at 30 s, 2026-10-29). Other zones are unchanged.
 
+Since v1.7 the Security zone's M365 posture is fetched as 3 slices
+(`/status?batch=1..3&of=3`, `CIPP_BATCHES`) and combined in the page: one
+request for every tenant went over Cloudflare's free-plan limit of 50 outbound
+calls and left about half the tenants out. A slice that fails leaves only its
+tenants out for that round.
+
 ## Repo split
 
 This repo (`https://github.com/rafouche/Dashboard`) holds only the wallboard
