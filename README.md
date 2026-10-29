@@ -6,6 +6,11 @@ Worker MCP servers' `/status` (and `/licenses`) routes and renders a
 four-zone live view — Network, Tickets & SLA, Security, Business. Open it
 directly in any browser, on any TV — `file://` or hosted, doesn't matter.
 
+It refreshes every minute (`POLL_MS`; 30 s before v1.6). The CIPP and Halo
+Workers rebuild `/status` at most every 5 minutes, because building it costs
+more CPU than Cloudflare's free plan allows per request (197 refreshes were cut
+off in two days at 30 s, 2026-10-29). Other zones are unchanged.
+
 ## Repo split
 
 This repo (`https://github.com/rafouche/Dashboard`) holds only the wallboard
