@@ -151,7 +151,7 @@
   // Bump this on every meaningful change: 1.1 -> 1.2 -> 1.2.5 -> 1.3 for
   // regular updates; jump to 2.0 only for a major/breaking change (new
   // zone structure, changed endpoint contract, etc).
-  const APP_VERSION = '1.7';
+  const APP_VERSION = '1.8';
   document.getElementById('versionBadge').textContent = 'v' + APP_VERSION;
 
   const ENDPOINTS = {
@@ -417,6 +417,14 @@
       devices: ((ninja && ninja.devices) || demoNetwork().devices).filter(d => !isInactiveClient(d.client)),
       merakiNetworks: [...merakiNetworks, ...peplinkNetworks, ...unifiNetworks].filter(n => !isInactiveClient(n.orgName)),
       ninjaLive,
+      // Each Worker leaves out devices offline for more than staleDays (30)
+      // and reports how many; shown as a footnote under the totals.
+      staleHidden: {
+        ninja: (ninja && ninja.staleHidden) || 0,
+        meraki: (merakiResult.status === 'fulfilled' && merakiResult.value.staleHidden) || 0,
+        peplink: (peplinkResult.status === 'fulfilled' && peplinkResult.value.staleHidden) || 0,
+        unifi: (unifiResult.status === 'fulfilled' && unifiResult.value.staleHidden) || 0,
+      },
     };
   }
   function renderNetwork(data, filter, sort) {
@@ -483,6 +491,9 @@
     ];
     tiles.sort((a, b) => sort === 'az' ? a.name.localeCompare(b.name) : b.severity - a.severity);
 
+    const sh = data.staleHidden || {};
+    const staleCount = filter === 'all' ? Object.values(sh).reduce((a, n) => a + n, 0) : (sh[filter] || 0);
+
     body.innerHTML = `
       ${data.ninjaLive === false && (filter === 'all' || filter === 'ninja') ? '<div class="empty-state" style="color:var(--wire);padding:4px 0 12px;text-align:left;">Ninja endpoint unreachable — individually-tracked tiles below are DEMO data, org-level vendors (Meraki/Peplink/UniFi) are live</div>' : ''}
       <div class="stat-row">
@@ -490,6 +501,7 @@
         <div class="stat"><div class="stat-num" style="color:${totalDown ? 'var(--red)' : 'var(--green)'}">${totalDown}</div><div class="stat-label">Down</div></div>
         ${filter === 'all' ? `<div class="stat"><div class="stat-num" style="color:${down.length ? 'var(--red)' : 'var(--green)'}">${down.length}/${allDevices.length}</div><div class="stat-label">Individually-Tracked (Ninja)</div></div>` : ''}
       </div>
+      ${staleCount ? `<div class="stat-footnote">${staleCount} device${staleCount === 1 ? '' : 's'} offline over 30 days hidden</div>` : ''}
       <div class="net-grid">
         ${tiles.map(t => t.html).join('')}
         ${tiles.length === 0 ? '<div class="empty-state">No devices in this view</div>' : ''}

@@ -62,6 +62,15 @@ Peplink, and UniFi network tiles are grouped by client name (with a manual
 `ORG_ALIASES` table in the script for cases where a vendor names the same
 client differently, e.g. an abbreviation).
 
+## Stale devices (v1.8)
+
+Meraki, Peplink, UniFi and NinjaOne each leave out of `/status` any device
+that has been offline for more than 30 days, and report how many as
+`staleHidden`. The Network zone adds them up into a footnote ("N devices
+offline over 30 days hidden"). A client whose devices are all stale has no
+tile. The filtering happens in the Workers (rafouche/MCPs), because the
+dashboard only receives counts per client.
+
 ## Inactive-client filtering
 
 HaloPSA is treated as the source of truth for whether a client is still
