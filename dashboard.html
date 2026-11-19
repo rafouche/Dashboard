@@ -6,8 +6,9 @@
 <title>Altec Network Operations Center</title>
 <style>
   :root {
-    --header-h: 52px;
+    --header-h: 40px;
     --app-pad: 16px;
+    --app-pad-top: 6px; /* tighter than the other sides: gives the top row more height */
     --bg-void: #0A0D12;
     --bg-panel: #12161D;
     --hairline: #232935;
@@ -41,7 +42,7 @@
   .clock-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
   .clock { font-family: var(--mono); font-size: 18px; color: var(--text-muted); }
 
-  #app { flex: 1; overflow: hidden; padding: var(--app-pad); min-height: 0; box-sizing: border-box; }
+  #app { flex: 1; overflow: hidden; padding: var(--app-pad); padding-top: var(--app-pad-top); min-height: 0; box-sizing: border-box; }
   #app.mode-single { display: flex; flex-direction: column; }
   #app.mode-all {
     display: grid;
@@ -55,22 +56,37 @@
        though #app sits below the header and inside its own padding.
        Assumes a 2-row physical arrangement (top two TVs / bottom two TVs) —
        if the physical layout ever changes, this is the formula to revisit. */
-    grid-template-rows: calc(50dvh - var(--header-h) - var(--app-pad)) 50dvh;
+    grid-template-rows: calc(50dvh - var(--header-h) - var(--app-pad-top)) 50dvh;
     gap: 14px;
   }
 
   .zone { background: var(--bg-panel); border: 1px solid var(--hairline); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
   .mode-single .zone { flex: 1; }
 
-  .zone-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--hairline); flex-shrink: 0; }
+  .zone-head { position: relative; display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--hairline); flex-shrink: 0; }
   .zone-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; }
   .zone-title .swatch { width: 8px; height: 8px; border-radius: 2px; }
+  .zone-state { font-family: var(--mono); font-size: 10.5px; font-weight: 400; letter-spacing: 0.06em; color: var(--wire); border: 1px solid rgba(91,141,239,0.35); border-radius: 10px; padding: 2px 8px; }
+  .zone-state:empty { display: none; }
   .zone-meta { font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); }
   .zone-meta.stale { color: var(--amber); }
   .zone-meta.demo { color: var(--wire); }
   .zone-body { flex: 1; overflow-y: auto; padding: 14px 16px; font-size: 15px; min-height: 0; }
 
-  .chip-row { display: flex; align-items: center; gap: 6px; padding: 4px 16px; border-bottom: 1px solid var(--hairline); flex-shrink: 0; overflow-x: auto; }
+  /* Auto-hide: the Show/Sort row takes no layout space. It floats over the
+     top of the zone body and only appears while the mouse is moving inside
+     that zone (JS adds .show-controls, then removes it after a few idle
+     seconds). The active non-default filter/sort is shown as a small tag
+     next to the zone title, so a hidden row never hides what's in effect. */
+  .chip-row {
+    position: absolute; left: 0; right: 0; top: 100%; z-index: 5;
+    display: flex; align-items: center; gap: 6px; padding: 6px 16px;
+    background: var(--bg-panel); border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.45); overflow-x: auto;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity 0.2s ease, visibility 0.2s;
+  }
+  .zone.show-controls .chip-row { opacity: 1; visibility: visible; pointer-events: auto; }
   .chip-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
   .chip-divider { width: 1px; height: 14px; background: var(--hairline); flex-shrink: 0; margin: 0 4px; }
   .chip-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); flex-shrink: 0; margin-right: 2px; }
@@ -151,7 +167,7 @@
   // Bump this on every meaningful change: 1.1 -> 1.2 -> 1.2.5 -> 1.3 for
   // regular updates; jump to 2.0 only for a major/breaking change (new
   // zone structure, changed endpoint contract, etc).
-  const APP_VERSION = '1.8';
+  const APP_VERSION = '1.9';
   document.getElementById('versionBadge').textContent = 'v' + APP_VERSION;
 
   const ENDPOINTS = {
@@ -209,10 +225,9 @@
   const activeZones = zoneParam === 'all' ? Object.keys(ZONES) : [zoneParam];
   app.className = zoneParam === 'all' ? 'mode-all' : 'mode-single';
 
-  // Filter and sort used to each get their own full chip-row — two rows of
-  // vertical space per zone before any content showed. Merged into one row
-  // (still two id-scoped groups internally, so the existing toggle-active
-  // logic below doesn't need to change) to cut that in half.
+  // Filter and sort share one chip-row (two id-scoped groups internally).
+  // The row auto-hides: it is rendered inside .zone-head and floats below it
+  // as an overlay, so it costs the zone body no vertical space.
   function buildChipGroup(key, kind, options, current) {
     const chips = options.map(o =>
       `<button class="chip${current === o.key ? ' active' : ''}" data-zone="${key}" data-kind="${kind}" data-value="${o.key}">${escapeHtml(o.label)}</button>`
@@ -234,13 +249,50 @@
     el.className = 'zone zone--' + key;
     el.innerHTML = `
       <div class="zone-head">
-        <div class="zone-title"><span class="swatch"></span>${z.title}</div>
+        <div class="zone-title"><span class="swatch"></span>${z.title}<span class="zone-state" id="state-${key}"></span></div>
         <div class="zone-meta" id="meta-${key}">connecting…</div>
+        ${buildControlsRow(key, z, filterState[key], sortState[key])}
       </div>
-      ${buildControlsRow(key, z, filterState[key], sortState[key])}
       <div class="zone-body" id="body-${key}"></div>
     `;
     app.appendChild(el);
+    updateStateTag(key);
+  });
+
+  // Tag next to the zone title naming any non-default filter/sort, since the
+  // chip row itself is hidden most of the time.
+  function updateStateTag(key) {
+    const z = ZONES[key];
+    const tag = document.getElementById('state-' + key);
+    if (!z || !tag) return;
+    const parts = [];
+    const f = (z.filters || []).find(o => o.key === filterState[key]);
+    const s = (z.sorts || []).find(o => o.key === sortState[key]);
+    if (f && f.key !== 'all') parts.push(f.label);
+    if (s && s.key !== 'priority') parts.push(s.label);
+    tag.textContent = parts.join(' · ');
+  }
+
+  // Auto-hide for the chip rows: mouse movement inside a zone reveals that
+  // zone's row; it hides again after CONTROLS_IDLE_MS without movement, or as
+  // soon as the pointer leaves the zone. A parked cursor never holds it open.
+  const CONTROLS_IDLE_MS = 4000;
+  const controlTimers = new WeakMap();
+  function revealControls(zoneEl) {
+    zoneEl.classList.add('show-controls');
+    clearTimeout(controlTimers.get(zoneEl));
+    controlTimers.set(zoneEl, setTimeout(() => zoneEl.classList.remove('show-controls'), CONTROLS_IDLE_MS));
+  }
+  ['mousemove', 'touchstart', 'click'].forEach(evt => app.addEventListener(evt, (e) => {
+    const zoneEl = e.target.closest('.zone');
+    if (zoneEl) revealControls(zoneEl);
+  }, { passive: true }));
+  app.addEventListener('mouseout', (e) => {
+    const zoneEl = e.target.closest('.zone');
+    if (zoneEl && !zoneEl.contains(e.relatedTarget)) {
+      clearTimeout(controlTimers.get(zoneEl));
+      zoneEl.classList.remove('show-controls');
+    }
   });
 
   // Event delegation on #app for chip clicks — works regardless of how many
@@ -263,6 +315,7 @@
     history.replaceState(null, '', url);
 
     document.querySelectorAll(`#${kind}s-${key} .chip`).forEach(c => c.classList.toggle('active', c.dataset.value === value));
+    updateStateTag(key);
     if (lastData[key]) ZONES[key].render(lastData[key], filterState[key], sortState[key]);
   });
 

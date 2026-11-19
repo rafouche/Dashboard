@@ -41,6 +41,8 @@ changes.
 - `?<endpointKey>=<url>` — override any single endpoint at load time, e.g. `?ninja=http://localhost:8787/status`
 - `?<zone>Filter=...` / `?<zone>Sort=...` — set a zone's filter/sort chip on load (also written back to the URL when a chip is clicked, so a kiosk reload keeps its state)
 
+The Show/Sort chip row auto-hides: move the mouse inside a zone to reveal it (it floats over the top of the zone, taking no layout space) and it hides again after 4 seconds without movement (`CONTROLS_IDLE_MS`). Any non-default filter/sort is shown as a small tag next to the zone title.
+
 ## Zones and their sources
 
 | Zone | Source(s) | Route |
